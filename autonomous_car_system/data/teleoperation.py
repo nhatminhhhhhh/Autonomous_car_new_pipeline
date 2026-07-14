@@ -1,9 +1,11 @@
+import sys
 import cv2
 import json
 import os
 import time
 from pynput import keyboard as kb
 
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from hardware.camera import CameraThread
 
 STEERING_STEP = 0.05
