@@ -1,0 +1,17 @@
+.venv/
+__pycache__/
+
+# Datasets (raw/processed - regenerate if needed)
+dataset/
+my_dataset/
+my_dataset_old/
+old_dataset/
+
+
+# Collected driving data
+data/collected_driving/
+
+# Visualizations
+*.png
+*.jpg
+*.mp4
