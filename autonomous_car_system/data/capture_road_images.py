@@ -15,7 +15,7 @@ def main():
         print(f"Đã tạo thư mục: {save_dir}")
 
     # Khởi tạo camera (sử dụng CameraThread của hệ thống)
-    cam = CameraThread(cam_index=0)
+    cam = CameraThread(src=0)
     print("=== Tool Chụp Ảnh Sân (RoadSegNet) ===")
     print("Nhấn 's' để chụp và lưu ảnh")
     print("Nhấn 'q' để thoát")
