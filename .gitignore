@@ -15,3 +15,6 @@ data/collected_driving/
 *.png
 *.jpg
 *.mp4
+#esp32_code 
+esp32_code.ino
+esp32_firmware/

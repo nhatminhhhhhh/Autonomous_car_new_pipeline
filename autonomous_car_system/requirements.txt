@@ -6,6 +6,8 @@ albumentations>=1.0.0
 matplotlib>=3.3.0
 tqdm>=4.50.0
 pynput>=1.7.0
+Flask>=2.0.0
+pyserial>=3.5
 
 # Jetson Nano (optional - install on device)
 torch2trt
