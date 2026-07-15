@@ -24,11 +24,11 @@ def detect_platform():
 
 def gstreamer_pipeline(
     sensor_id=0,
-    capture_width=1640,
-    capture_height=1232,
+    capture_width=1280,
+    capture_height=720,
     display_width=640,
     display_height=480,
-    framerate=30,
+    framerate=60,
     flip_method=2,
 ):
     return (
@@ -51,17 +51,17 @@ def gstreamer_pipeline(
     )
 
 
-def open_camera(src=0, width=1640, height=1232, fps=30):
+def open_camera(src=0, width=1280, height=720, fps=60):
     plat = detect_platform()
 
     if plat == 'jetson':
         pipeline = gstreamer_pipeline(
             sensor_id=src,
-            capture_width=1640,
-            capture_height=1232,
+            capture_width=1280,
+            capture_height=720,
             display_width=width,
             display_height=height,
-            framerate=30,
+            framerate=60,
             flip_method=2,
         )
         cap = cv2.VideoCapture(pipeline, cv2.CAP_GSTREAMER)
@@ -90,7 +90,7 @@ def open_camera(src=0, width=1640, height=1232, fps=30):
 
 
 class CameraThread:
-    def __init__(self, src=0, width=640, height=480, fps=30, max_queue_size=2):
+    def __init__(self, src=0, width=640, height=480, fps=60, max_queue_size=2):
         self.cap = open_camera(src, width, height, fps)
         self.q = queue.Queue(maxsize=max_queue_size)
         self.stopped = False
