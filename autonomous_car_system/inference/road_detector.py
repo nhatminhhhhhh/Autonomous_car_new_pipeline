@@ -15,9 +15,10 @@ _MEAN = np.array([0.485, 0.456, 0.406], dtype=np.float32)
 _STD = np.array([0.229, 0.224, 0.225], dtype=np.float32)
 
 COLOR_LUT = np.array([
-    [0, 0, 0],        # background
+    [0, 0, 0],        # _background_
     [0, 200, 0],      # road (green)
     [200, 200, 0],    # lane_marking (yellow)
+    [0, 0, 200],      # dividing_line (red)
 ], dtype=np.uint8)
 
 
