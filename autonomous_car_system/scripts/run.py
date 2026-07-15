@@ -55,6 +55,7 @@ def mode_test(road_detector, cam):
     fps_time = time.perf_counter()
     display_fps = 0.0
     frame_count = 0
+    timing_interval = 30
 
     frame = cam.read()
 
@@ -62,7 +63,7 @@ def mode_test(road_detector, cam):
         frame = cam.read()
 
         frame_count += 1
-        timing = frame_count <= 5
+        timing = (frame_count % timing_interval == 0)
 
         t0 = time.perf_counter()
         pred = road_detector.predict(frame, timing=timing)
