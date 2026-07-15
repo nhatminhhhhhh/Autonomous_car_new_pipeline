@@ -15,3 +15,6 @@ data/collected_driving/
 *.mp4
 #esp32_code 
 scripts/esp32_firmware
+
+data/Road_img
+data/test_results
