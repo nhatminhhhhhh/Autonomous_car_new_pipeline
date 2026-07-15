@@ -90,7 +90,7 @@ def open_camera(src=0, width=640, height=480, fps=60):
 
 
 class CameraThread:
-    def __init__(self, src=0, width=640, height=480, fps=60, max_queue_size=2):
+    def __init__(self, src=0, width=480, height=360, fps=60, max_queue_size=2):
         self.cap = open_camera(src, width, height, fps)
         self.q = queue.Queue(maxsize=max_queue_size)
         self.stopped = False
