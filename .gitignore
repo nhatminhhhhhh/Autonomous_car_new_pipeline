@@ -16,5 +16,5 @@ data/collected_driving/
 #esp32_code 
 scripts/esp32_firmware
 
-data/Road_img
-data/test_results
+autonomous_car_system/data/Road_img/
+autonomous_car_system/data/test_results/
