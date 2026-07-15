@@ -38,6 +38,8 @@ def parse_args():
     )
     parser.add_argument('--use-trt', action='store_true',
                         help='Dùng TensorRT cho RoadSegNet')
+    parser.add_argument('--no-display', action='store_true',
+                        help='Tắt hiển thị cửa sổ (chạy ngầm, tăng FPS)')
     return parser.parse_args()
 
 
@@ -63,6 +65,7 @@ def mode_test(road_detector, cam):
 
         t0 = time.perf_counter()
         pred = road_detector.predict(frame, timing=timing)
+        torch.cuda.synchronize()
         color_mask = road_detector.colorize(pred)
         infer_ms = (time.perf_counter() - t0) * 1000
 
@@ -104,17 +107,19 @@ def mode_collect(save_dir, cam_index, road_ckpt):
     collector.run()
 
 
-def mode_autonomous(road_detector, steering_predictor, cam):
+def mode_autonomous(road_detector, steering_predictor, cam, no_display=False):
     print("[Mode] Autonomous Driving (mask-based steering)")
     print("  Keys: q=quit, e=estop")
 
-    cv2.namedWindow('Autonomous Driving', cv2.WINDOW_NORMAL)
+    if not no_display:
+        cv2.namedWindow('Autonomous Driving', cv2.WINDOW_NORMAL)
 
     while True:
         frame = cam.read()
 
         t0 = time.perf_counter()
         road_mask = road_detector.predict(frame)
+        torch.cuda.synchronize()
         color_mask = road_detector.colorize(road_mask)
         overlay = road_detector.overlay(frame, color_mask, 0.4)
 
@@ -122,24 +127,24 @@ def mode_autonomous(road_detector, steering_predictor, cam):
 
         infer_ms = (time.perf_counter() - t0) * 1000
 
-        cv2.putText(
-            overlay,
-            f"Steering: {steering:+.2f} | Infer: {infer_ms:.0f}ms",
-            (10, 25), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (0, 255, 0), 2
-        )
+        if not no_display:
+            cv2.putText(
+                overlay,
+                f"Steering: {steering:+.2f} | Infer: {infer_ms:.0f}ms",
+                (10, 25), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (0, 255, 0), 2
+            )
 
-        if steering_predictor.model is None:
-            cv2.putText(overlay,
-                        "WARNING: No steering model loaded — steering=0.0",
-                        (10, 50), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 2)
+            if steering_predictor.model is None:
+                cv2.putText(overlay,
+                            "WARNING: No steering model loaded — steering=0.0",
+                            (10, 50), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 2)
 
-        cv2.imshow('Autonomous Driving', overlay)
-
-        key = cv2.waitKey(1) & 0xFF
-        if key == ord('q'):
-            break
-        elif key == ord('e'):
-            print("[ESTOP] Emergency stop triggered")
+            cv2.imshow('Autonomous Driving', overlay)
+            key = cv2.waitKey(1) & 0xFF
+            if key == ord('q'):
+                break
+            elif key == ord('e'):
+                print("[ESTOP] Emergency stop triggered")
 
     cv2.destroyAllWindows()
 
@@ -162,7 +167,7 @@ def main():
     elif args.mode == 'autonomous':
         print(f"Loading MaskDrivingNet từ: {args.mask_driving_ckpt}")
         steering_predictor = MaskSteeringPredictor(args.mask_driving_ckpt)
-        mode_autonomous(road_detector, steering_predictor, cam)
+        mode_autonomous(road_detector, steering_predictor, cam, no_display=args.no_display)
 
     cam.stop()
 

@@ -26,9 +26,9 @@ def gstreamer_pipeline(
     sensor_id=0,
     capture_width=1280,
     capture_height=720,
-    display_width=640,
-    display_height=480,
-    framerate=60,
+    display_width=480,
+    display_height=360,
+    framerate=120,
     flip_method=2,
 ):
     return (
@@ -61,12 +61,12 @@ def open_camera(src=0, width=640, height=480, fps=60):
             capture_height=720,
             display_width=width,
             display_height=height,
-            framerate=60,
+            framerate=120,
             flip_method=2,
         )
         cap = cv2.VideoCapture(pipeline, cv2.CAP_GSTREAMER)
         if cap.isOpened():
-            print(f"[Camera] IMX219 GStreamer | {width}x{height} (capture 1280x720)")
+            print(f"[Camera] IMX219 GStreamer | display {width}x{height} (capture 1280x720 @ 120fps)")
             return cap
 
     if plat == 'windows':

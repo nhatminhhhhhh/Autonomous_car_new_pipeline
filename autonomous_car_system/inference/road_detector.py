@@ -84,9 +84,11 @@ class RoadDetector:
         t = t.permute(2, 0, 1).unsqueeze(0)
         t = t.to(dtype=self._dtype).div_(255.0)
         t = (t - self._mean_gpu) / self._std_gpu
+        torch.cuda.synchronize()
         if timing: t_preproc = time.perf_counter()
 
         out = self.model(t)
+        torch.cuda.synchronize()
         if timing: t_infer = time.perf_counter()
 
         pred = torch.argmax(out, dim=1).squeeze(0).byte().cpu().numpy()
