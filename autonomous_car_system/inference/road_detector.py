@@ -6,6 +6,8 @@ import torch
 import numpy as np
 import cv2
 
+import time
+
 from models.road_segnet import RoadSegNet
 from configs.config import CONFIG
 
@@ -15,8 +17,7 @@ _STD = np.array([0.229, 0.224, 0.225], dtype=np.float32)
 COLOR_LUT = np.array([
     [0, 0, 0],        # background
     [0, 200, 0],      # road (green)
-    [200, 200, 0],    # lane (yellow)
-    [0, 0, 200],      # dividing_line (red)
+    [200, 200, 0],    # lane_marking (yellow)
 ], dtype=np.uint8)
 
 
@@ -70,21 +71,33 @@ class RoadDetector:
         print(f"[RoadDetector] TensorRT model loaded")
 
     @torch.no_grad()
-    def predict(self, frame_bgr):
+    def predict(self, frame_bgr, timing=False):
         h, w = frame_bgr.shape[:2]
+
+        if timing: t0 = time.perf_counter()
         small = cv2.resize(frame_bgr, (self.infer_w, self.infer_h))
+        if timing: t_resize = time.perf_counter()
 
         rgb = small[:, :, ::-1].copy()
         t = torch.from_numpy(rgb).to(self.device, non_blocking=True)
         t = t.permute(2, 0, 1).unsqueeze(0)
         t = t.to(dtype=self._dtype).div_(255.0)
         t = (t - self._mean_gpu) / self._std_gpu
+        if timing: t_preproc = time.perf_counter()
 
         out = self.model(t)
+        if timing: t_infer = time.perf_counter()
+
         pred = torch.argmax(out, dim=1).squeeze(0).byte().cpu().numpy()
+        if timing: t_post = time.perf_counter()
 
         if pred.shape[0] != h or pred.shape[1] != w:
             pred = cv2.resize(pred, (w, h), interpolation=cv2.INTER_NEAREST)
+
+        if timing:
+            print(f"  [Timing] resize={t_resize-t0:.1f}ms  preproc={t_preproc-t_resize:.1f}ms  "
+                  f"infer={t_infer-t_preproc:.1f}ms  post={t_post-t_infer:.1f}ms  "
+                  f"total={(time.perf_counter()-t0)*1000:.1f}ms")
 
         return pred
 

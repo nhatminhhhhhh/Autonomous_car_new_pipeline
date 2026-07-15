@@ -51,14 +51,18 @@ def mode_test(road_detector, cam):
     fps_counter = 0
     fps_time = time.perf_counter()
     display_fps = 0.0
+    frame_count = 0
 
     frame = cam.read()
 
     while True:
         frame = cam.read()
 
+        frame_count += 1
+        timing = frame_count <= 5
+
         t0 = time.perf_counter()
-        pred = road_detector.predict(frame)
+        pred = road_detector.predict(frame, timing=timing)
         color_mask = road_detector.colorize(pred)
         infer_ms = (time.perf_counter() - t0) * 1000
 
