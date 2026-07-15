@@ -7,7 +7,6 @@ import cv2
 import time
 
 from inference.road_detector import RoadDetector
-from inference.driving_predictor import DrivingPredictor
 from inference.mask_steering import MaskSteeringPredictor
 from hardware.camera import CameraThread
 from configs.config import CONFIG
@@ -20,17 +19,6 @@ def parse_args():
         choices=['test', 'collect', 'autonomous'],
         help='Chế độ hoạt động: test=kiểm tra segmentation, collect=thu dữ liệu, autonomous=tự lái'
     )
-    parser.add_argument(
-        '--steering-method', type=str, default='mask_model',
-        choices=['mask_model', 'drivingnet'],
-        help=(
-            'Phương pháp tính góc lái khi autonomous:\n'
-            '  mask_model  — MaskDrivingNet (CNN từ mask, mặc định)\n'
-            '  drivingnet  — DrivingNet gốc (end-to-end từ ảnh RGB)'
-        )
-    )
-    parser.add_argument('--use-trt', action='store_true',
-                        help='Dùng TensorRT cho inference')
     parser.add_argument('--camera', type=int, default=0,
                         help='Camera index')
     parser.add_argument(
@@ -46,23 +34,19 @@ def parse_args():
     parser.add_argument(
         '--mask-driving-ckpt', type=str,
         default=os.path.join(CONFIG['save_dir_mask_driving'], 'best_mask_driving_model.pth'),
-        help='Checkpoint MaskDrivingNet (dùng khi --steering-method mask_model)'
+        help='Checkpoint MaskDrivingNet'
     )
-    parser.add_argument(
-        '--driving-ckpt', type=str,
-        default=os.path.join(CONFIG['save_dir_driving'], 'best_driving_model.pth'),
-        help='Checkpoint DrivingNet gốc (dùng khi --steering-method drivingnet)'
-    )
+    parser.add_argument('--use-trt', action='store_true',
+                        help='Dùng TensorRT cho RoadSegNet')
     return parser.parse_args()
 
 
-# ─── Chế độ TEST ──────────────────────────────────────────────────────────────
 def mode_test(road_detector, cam):
     print("[Mode] Road Detection Test")
     print("  Keys: q=quit, o/l=alpha, m=mode cycle")
 
     alpha = 0.5
-    mode = 0
+    mode_idx = 0
     modes = ['Overlay', 'Mask only', 'Camera only']
     fps_counter = 0
     fps_time = time.perf_counter()
@@ -78,9 +62,9 @@ def mode_test(road_detector, cam):
         color_mask = road_detector.colorize(pred)
         infer_ms = (time.perf_counter() - t0) * 1000
 
-        if mode == 0:
+        if mode_idx == 0:
             display = road_detector.overlay(frame, color_mask, alpha)
-        elif mode == 1:
+        elif mode_idx == 1:
             display = color_mask
         else:
             display = frame
@@ -93,7 +77,7 @@ def mode_test(road_detector, cam):
             fps_time = now
 
         cv2.putText(display,
-                    f"FPS: {display_fps:.0f}  Infer: {infer_ms:.0f}ms  Alpha:{alpha:.2f}  [{modes[mode]}]",
+                    f"FPS: {display_fps:.0f}  Infer: {infer_ms:.0f}ms  Alpha:{alpha:.2f}  [{modes[mode_idx]}]",
                     (10, 25), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (0, 255, 0), 2)
         cv2.imshow('Road Detection Test', display)
 
@@ -105,27 +89,20 @@ def mode_test(road_detector, cam):
         elif key == ord('l'):
             alpha = max(0.0, alpha - 0.05)
         elif key == ord('m'):
-            mode = (mode + 1) % len(modes)
+            mode_idx = (mode_idx + 1) % len(modes)
 
     cv2.destroyAllWindows()
 
 
-# ─── Chế độ COLLECT ───────────────────────────────────────────────────────────
-def mode_collect(save_dir, cam_index):
+def mode_collect(save_dir, cam_index, road_ckpt):
     from data.teleoperation import TeleoperationCollector
-    collector = TeleoperationCollector(save_dir=save_dir, cam_index=cam_index)
+    collector = TeleoperationCollector(save_dir=save_dir, cam_index=cam_index, road_ckpt=road_ckpt)
     collector.run()
 
 
-# ─── Chế độ AUTONOMOUS ────────────────────────────────────────────────────────
-def mode_autonomous(road_detector, steering_predictor, cam, steering_method):
-    print(f"[Mode] Autonomous Driving — steering_method={steering_method}")
+def mode_autonomous(road_detector, steering_predictor, cam):
+    print("[Mode] Autonomous Driving (mask-based steering)")
     print("  Keys: q=quit, e=estop")
-
-    method_label = {
-        'mask_model': 'MaskCNN',
-        'drivingnet': 'DrivingNet',
-    }[steering_method]
 
     cv2.namedWindow('Autonomous Driving', cv2.WINDOW_NORMAL)
 
@@ -137,26 +114,17 @@ def mode_autonomous(road_detector, steering_predictor, cam, steering_method):
         color_mask = road_detector.colorize(road_mask)
         overlay = road_detector.overlay(frame, color_mask, 0.4)
 
-        # Tính góc lái theo phương pháp đã chọn
-        if steering_method == 'mask_model':
-            steering = steering_predictor.predict(road_mask)
-        else:
-            steering = steering_predictor.predict(frame)
+        steering = steering_predictor.predict(road_mask)
 
         infer_ms = (time.perf_counter() - t0) * 1000
 
         cv2.putText(
             overlay,
-            f"[{method_label}] Steering: {steering:+.2f} | Infer: {infer_ms:.0f}ms",
+            f"Steering: {steering:+.2f} | Infer: {infer_ms:.0f}ms",
             (10, 25), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (0, 255, 0), 2
         )
 
-        # Hiển thị cảnh báo nếu model chưa load
-        no_model = (
-            (steering_method == 'mask_model' and steering_predictor.model is None) or
-            (steering_method == 'drivingnet' and steering_predictor.model is None)
-        )
-        if no_model:
+        if steering_predictor.model is None:
             cv2.putText(overlay,
                         "WARNING: No steering model loaded — steering=0.0",
                         (10, 50), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 2)
@@ -172,7 +140,6 @@ def mode_autonomous(road_detector, steering_predictor, cam, steering_method):
     cv2.destroyAllWindows()
 
 
-# ─── MAIN ─────────────────────────────────────────────────────────────────────
 def main():
     args = parse_args()
 
@@ -186,18 +153,12 @@ def main():
 
     elif args.mode == 'collect':
         cam.stop()
-        mode_collect(args.save_dir, args.camera)
+        mode_collect(args.save_dir, args.camera, args.road_ckpt)
 
     elif args.mode == 'autonomous':
-        # Load steering model theo phương pháp được chọn
-        if args.steering_method == 'mask_model':
-            print(f"Loading MaskDrivingNet từ: {args.mask_driving_ckpt}")
-            steering_predictor = MaskSteeringPredictor(args.mask_driving_ckpt)
-        else:
-            print(f"Loading DrivingNet từ: {args.driving_ckpt}")
-            steering_predictor = DrivingPredictor(args.driving_ckpt, use_trt=args.use_trt)
-
-        mode_autonomous(road_detector, steering_predictor, cam, args.steering_method)
+        print(f"Loading MaskDrivingNet từ: {args.mask_driving_ckpt}")
+        steering_predictor = MaskSteeringPredictor(args.mask_driving_ckpt)
+        mode_autonomous(road_detector, steering_predictor, cam)
 
     cam.stop()
 

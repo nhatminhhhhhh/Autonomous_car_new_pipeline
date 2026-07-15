@@ -7,17 +7,20 @@ from pynput import keyboard as kb
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from hardware.camera import CameraThread
+from inference.road_detector import RoadDetector
+from configs.config import CONFIG
 
 STEERING_STEP = 0.05
 THROTTLE_STEP = 0.1
 
 
 class TeleoperationCollector:
-    def __init__(self, save_dir='collected_driving', cam_index=0):
+    def __init__(self, save_dir='collected_driving', cam_index=0, road_ckpt=None):
         self.save_dir = save_dir
         os.makedirs(save_dir, exist_ok=True)
 
         self.cam = CameraThread(cam_index)
+        self.road_detector = RoadDetector(checkpoint_path=road_ckpt) if road_ckpt else None
 
         self.steering = 0.0
         self.throttle = 0.0
@@ -60,6 +63,10 @@ class TeleoperationCollector:
         print("  r     : Toggle recording")
         print("  q     : Quit")
         print(f"  Saving to: {self.save_dir}")
+        if self.road_detector:
+            print("  Mode: saving segmentation masks (mask-based driving)")
+        else:
+            print("  Mode: saving raw images (no RoadSegNet checkpoint)")
 
         cv2.namedWindow('Teleoperation', cv2.WINDOW_NORMAL)
 
@@ -79,17 +86,25 @@ class TeleoperationCollector:
                         cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
 
             if self.recording:
-                img_name = f"frame_{self.frame_idx:06d}.jpg"
-                img_path = os.path.join(self.save_dir, img_name)
-                cv2.imwrite(img_path, frame)
+                prefix = f"frame_{self.frame_idx:06d}"
+
+                if self.road_detector:
+                    mask = self.road_detector.predict(frame)
+                    mask_path = os.path.join(self.save_dir, f"{prefix}_mask.png")
+                    cv2.imwrite(mask_path, mask)
+                    img_file = f"{prefix}_mask.png"
+                else:
+                    img_path = os.path.join(self.save_dir, f"{prefix}.jpg")
+                    cv2.imwrite(img_path, frame)
+                    img_file = f"{prefix}.jpg"
 
                 data = {
-                    'image_file': img_name,
+                    'image_file': img_file,
                     'steering': float(self.steering),
                     'throttle': float(self.throttle),
                     'timestamp': time.time(),
                 }
-                json_path = os.path.join(self.save_dir, f"frame_{self.frame_idx:06d}.json")
+                json_path = os.path.join(self.save_dir, f"{prefix}.json")
                 with open(json_path, 'w') as f:
                     json.dump(data, f, indent=2)
 
@@ -113,5 +128,6 @@ class TeleoperationCollector:
 if __name__ == '__main__':
     import sys
     save_dir = sys.argv[1] if len(sys.argv) > 1 else 'collected_driving'
-    collector = TeleoperationCollector(save_dir=save_dir)
+    road_ckpt = sys.argv[2] if len(sys.argv) > 2 else None
+    collector = TeleoperationCollector(save_dir=save_dir, road_ckpt=road_ckpt)
     collector.run()

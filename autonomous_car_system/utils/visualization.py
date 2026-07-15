@@ -37,34 +37,4 @@ def visualize_prediction(model, dataloader, device, num_samples=1, save_path='pr
     print(f"Prediction visualization saved: {save_path}")
 
 
-def visualize_driving(model, dataloader, device, save_path='driving_pred.png'):
-    model.eval()
-    preds, targets = [], []
-    with torch.no_grad():
-        for images, steer, _ in dataloader:
-            images = images.to(device)
-            steer = steer.to(device)
-            output = model(images)
-            preds.extend(output.cpu().numpy())
-            targets.extend(steer.cpu().numpy())
 
-    plt.figure(figsize=(12, 5))
-    plt.subplot(1, 2, 1)
-    plt.scatter(range(len(targets)), targets, s=10, label='Ground Truth', alpha=0.6)
-    plt.scatter(range(len(preds)), preds, s=10, label='Prediction', alpha=0.6)
-    plt.xlabel('Sample')
-    plt.ylabel('Steering Angle')
-    plt.legend()
-    plt.grid(True)
-
-    plt.subplot(1, 2, 2)
-    errors = np.array(targets) - np.array(preds).flatten()
-    plt.hist(errors, bins=30, alpha=0.7)
-    plt.xlabel('Prediction Error')
-    plt.ylabel('Count')
-    plt.grid(True)
-
-    plt.tight_layout()
-    plt.savefig(save_path)
-    plt.close()
-    print(f"Driving prediction plot saved: {save_path}")

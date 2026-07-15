@@ -62,7 +62,17 @@ def train():
     ).to(device)
     print(f"Params: {sum(p.numel() for p in model.parameters()):,}")
 
-    criterion = nn.CrossEntropyLoss()
+    # Thêm trọng số (class weights) để phạt nặng lỗi nhận diện sai vạch kẻ đường
+    # Vì vạch kẻ (lane, dividing_line) quá nhỏ so với background và road, model có xu hướng bỏ qua chúng
+    if CONFIG['num_classes'] == 4:
+        weights = torch.tensor([1.0, 2.0, 30.0, 40.0], dtype=torch.float32, device=device)
+        criterion = nn.CrossEntropyLoss(weight=weights)
+    elif CONFIG['num_classes'] == 3:
+        weights = torch.tensor([1.0, 2.0, 30.0], dtype=torch.float32, device=device)
+        criterion = nn.CrossEntropyLoss(weight=weights)
+    else:
+        criterion = nn.CrossEntropyLoss()
+        
     optimizer = optim.Adam(model.parameters(), lr=CONFIG['learning_rate'], weight_decay=CONFIG['weight_decay'])
     scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=10)
 

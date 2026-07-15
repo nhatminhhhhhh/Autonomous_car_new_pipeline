@@ -4,8 +4,6 @@ __pycache__/
 # Datasets (raw/processed - regenerate if needed)
 dataset/
 my_dataset/
-my_dataset_old/
-old_dataset/
 
 
 # Collected driving data
@@ -16,5 +14,4 @@ data/collected_driving/
 *.jpg
 *.mp4
 #esp32_code 
-esp32_code.ino
-esp32_firmware/
+scripts/esp32_firmware

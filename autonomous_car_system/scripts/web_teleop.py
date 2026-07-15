@@ -426,12 +426,21 @@ def estop():
 @app.route('/status')
 def status():
     with lock:
-        connected = esp32 is not None and esp32.ser is not None and esp32.ser.is_open
+        connected = esp32 is not None and esp32.connected()
     return jsonify({
         'esp32_connected': connected,
         'steering': current_steering,
         'throttle': current_throttle,
     })
+
+
+@app.route('/esp32/reset', methods=['POST'])
+def esp32_reset():
+    with lock:
+        if esp32 is not None:
+            ok = esp32.soft_reset()
+            return jsonify({'reset': ok, 'connected': esp32.connected()})
+    return jsonify({'reset': False, 'connected': False}), 500
 
 
 def parse_args():
@@ -464,6 +473,11 @@ def main():
 
     print("[WebTeleop] Connecting to ESP32...")
     esp32 = ESP32Controller(port=args.port, baud=args.baud)
+
+    if esp32.connected():
+        print(f"[WebTeleop] ESP32 connected at {esp32.port}")
+    else:
+        print("[WebTeleop] ESP32 not connected — simulation mode (use --port to specify)")
 
     print(f"[WebTeleop] Starting Flask server on {args.host}:{args.http_port}")
     print(f"[WebTeleop] Open http://{args.host}:{args.http_port} in your browser")

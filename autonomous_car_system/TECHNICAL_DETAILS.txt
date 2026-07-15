@@ -1,12 +1,12 @@
-================================================================================
+===============================================================================
   AUTONOMOUS CAR SYSTEM — Technical Details, Algorithms & Pipeline
-================================================================================
+===============================================================================
 
 1. SYSTEM OVERVIEW
 --------------------------------------------------------------------------------
 The autonomous car system uses a camera-based perception-to-control pipeline
-running on a Jetson Nano (with Windows fallback for development). It consists
-of two deep learning models running in sequence:
+running on a Jetson Nano (with Windows fallback for development). It uses
+segmentation-mask-based steering:
 
    Camera Frame
        |
@@ -14,14 +14,14 @@ of two deep learning models running in sequence:
    [RoadSegNet]  ->  road segmentation mask (3 classes: background, road, lane)
        |
        v
-   [DrivingNet]  ->  steering angle prediction (-1.0 to +1.0)
+   [MaskDrivingNet]  ->  steering angle prediction (-1.0 to +1.0)
        |
        v
-   [PWMController]  ->  servo motor commands
+   [ESP32Controller]  ->  servo motor commands via USB UART
 
 The system supports three operating modes:
   - test:        Real-time road segmentation visualization only
-  - collect:     Teleoperation data collection (WASD control)
+  - collect:     Teleoperation data collection (WASD control, saves masks)
   - autonomous:  Full end-to-end autonomous driving
 
 
@@ -31,30 +31,31 @@ autonomous_car_system/
   configs/config.py          Central configuration & hyperparameters
   models/
     road_segnet.py            RoadSegNet architecture (U-Net variant)
-    driving_net.py            DrivingNet architecture (NVIDIA PilotNet)
+    mask_driving_net.py       MaskDrivingNet (steering regressor from masks)
   data/
     dataset.py                PyTorch Dataset classes + data augmentations
-    prepare_dataset.py        Converts JSON polygon annotations to segmentation masks
-    teleoperation.py          Keyboard-controlled data collection tool
+    prepare_dataset.py        Converts LabelMe annotations to segmentation masks
+    teleoperation.py          Keyboard-controlled data collection (saves masks)
   hardware/
     camera.py                 Platform-aware camera + threaded capture
-    pwm_controller.py         PWM servo control + safety monitor
+    esp32_controller.py       ESP32 serial control for servo + motor
   inference/
     road_detector.py          RoadSegNet inference wrapper
-    driving_predictor.py      DrivingNet inference wrapper
+    mask_steering.py          MaskDrivingNet inference wrapper
     pipeline.py               Combined autonomous pipeline class
   training/
-    train_road.py              RoadSegNet training script
-    train_driving.py           DrivingNet training script
-    export_trt.py              TensorRT export script
+    train_road.py             RoadSegNet training script
+    train_mask_driving.py     MaskDrivingNet training script
+    export_trt.py             TensorRT export script
   scripts/
     run.py                    Main entry point (test/collect/autonomous modes)
     collect_data.py           CLI for data collection
-    fps_diagnostic.py          Camera FPS benchmarking tool
+    fps_diagnostic.py         Camera FPS benchmarking tool
+    web_teleop.py             Flask web teleoperation server
   utils/
-    visualization.py           Prediction visualization (saves PNG plots)
-    model_utils.py             Checkpoint save/load helpers
-    metrics.py                 IoU calculation, loss plotting
+    visualization.py          Prediction visualization (saves PNG plots)
+    model_utils.py            Checkpoint save/load helpers
+    metrics.py                Loss plotting utilities
 
 
 3. MODELS
@@ -73,22 +74,14 @@ autonomous_car_system/
       * Input: 128x128 RGB, Output: 128x128 class indices (3 channels)
   - Parameter count: ~95K (very lightweight for embedded deployment)
 
-3b. DrivingNet (driving_net.py)
-  - Architecture: NVIDIA PilotNet-inspired end-to-end steering regressor
-  - Convolutional layers:
-      Conv2d(3, 24, 5x5, stride=2, pad=2)  + BN + ReLU
-      Conv2d(24, 36, 5x5, stride=2, pad=2) + BN + ReLU
-      Conv2d(36, 48, 5x5, stride=2, pad=2) + BN + ReLU
-      Conv2d(48, 64, 3x3, stride=1, pad=1) + BN + ReLU
-      Conv2d(64, 64, 3x3, stride=1, pad=1) + BN + ReLU
-  - Fully-connected layers:
-      Flatten -> Linear(flattened_size, 100) -> ReLU -> Dropout(0.5)
-              -> Linear(100, 50) -> ReLU -> Dropout(0.5)
-              -> Linear(50, 10) -> ReLU
-              -> Linear(10, 1) -> steering scalar
-  - Input: 66x200 RGB (PilotNet crop-friendly aspect ratio)
-  - Output: Single float (steering angle, clamped to [-1.0, 1.0])
-  - Flattened size computed dynamically via a dummy forward pass
+3b. MaskDrivingNet (mask_driving_net.py)
+  - Architecture: Tiny CNN for steering regression from segmentation mask
+  - Input: 1-channel mask (class index / num_classes), 128x128
+  - Output: single float ∈ [-1.0, 1.0] (steering angle)
+  - Encoder: 4 Conv blocks (stride=2) downsample 128->64->32->16->8
+      channels: 1->16->32->64->128
+  - Head: Global Average Pooling -> Linear(128,64) -> Dropout(0.3) -> Linear(64,1) -> Tanh
+  - Parameter count: ~80K
 
 
 4. TRAINING PIPELINE
@@ -106,25 +99,24 @@ autonomous_car_system/
       * RandomBrightnessContrast (p=0.3)
       * GaussNoise (p=0.2)
       * Affine scale/translate (p=0.3)
+  - Dataset: my_dataset/{train,val}/{images,labels}/
   - Checkpoints saved every 10 epochs + best model by val loss
-  - Post-training: loss plot + prediction visualization saved
 
-4b. DrivingNet Training (train_driving.py)
-  - Loss: MSELoss (regression to steering angle)
-  - Optimizer: Adam (lr=1e-4)
+4b. MaskDrivingNet Training (train_mask_driving.py)
+  - Loss: HuberLoss(delta=0.1) — robust to steering outliers
+  - Optimizer: Adam (lr=1e-3, weight_decay=1e-4)
   - Scheduler: ReduceLROnPlateau (factor=0.5, patience=5)
-  - Early stopping: patience=15 epochs on validation MSE
+  - Early stopping: patience=15 epochs
   - Batch size: 32
-  - Image size: 66x200
-  - Data: JSON-labeled pairs (image_path, steering, throttle)
-  - Train/val split: 85%/15% random split
-  - Post-training: scatter plot of predictions vs ground truth + error histogram
+  - Gradient clipping: max_norm=1.0
+  - Dataset: collected_driving/ (mask_*.png + frame_*.json) — masks saved during teleoperation
+  - Augmentation: random horizontal flip with steering sign inversion
+  - Edge: training does NOT depend on RoadSegNet; masks are pre-computed
 
 4c. TensorRT Export (export_trt.py)
-  - Converts trained PyTorch models to TensorRT FP16 engines
-  - Uses torch2trt library
-  - Both RoadSegNet and DrivingNet are exported
-  - Runtime: inference module checks for _trt.pth suffix and loads TRT if available
+  - Converts RoadSegNet to TensorRT FP16 engine via torch2trt
+  - Saves as best_model_trt.pth alongside the PyTorch checkpoint
+  - Runtime: RoadDetector checks for _trt.pth suffix and loads TRT if available
 
 
 5. INFERENCE PIPELINE
@@ -138,15 +130,15 @@ autonomous_car_system/
   - Color LUT: [0,0,0] = background, [0,200,0] = road (green), [0,220,220] = lane (cyan)
   - FP16 inference when CUDA available
 
-5b. DrivingPredictor (inference/driving_predictor.py)
-  - Loads DrivingNet (PyTorch or TensorRT), gracefully handles missing checkpoint
-  - Preprocessing: resize to 66x200, RGB conversion, normalize (ImageNet stats)
+5b. MaskSteeringPredictor (inference/mask_steering.py)
+  - Loads MaskDrivingNet (PyTorch only)
+  - Preprocessing: resize mask to 128x128, normalize to [0, 1]
   - Output: single float clamped to [-1.0, 1.0]
   - If model is None (no checkpoint found), returns 0.0 (straight)
 
 5c. AutonomousPipeline (inference/pipeline.py)
-  - Combines RoadDetector + DrivingPredictor + CameraThread
-  - Main loop: reads frames (non-blocking), runs inference, displays overlay
+  - Combines RoadDetector + MaskSteeringPredictor + CameraThread
+  - Main loop: reads frames, runs RoadSegNet -> mask -> MaskDrivingNet -> steering
   - FPS counter for performance monitoring
 
 
@@ -160,12 +152,11 @@ autonomous_car_system/
   - Windows: DirectShow (DSHOW) or Media Foundation (MSMF) backends
   - CameraThread: background thread with bounded queue (maxsize=2), drops stale frames
 
-6b. PWM Controller (hardware/pwm_controller.py)
-  - Abstraction over wiringpi/Jetson.GPIO with simulation fallback
-  - Steering: maps [-1.0, 1.0] to pulse width (center=90, range=45)
-  - Throttle: maps [-1.0, 1.0] to pulse width (min=60, max=180)
-  - SafetyMonitor: automatic timeout (2s) + emergency stop
-  - Simulation mode: prints PWM values when hardware not available
+6b. ESP32 Controller (hardware/esp32_controller.py)
+  - Serial communication with ESP32 over USB UART
+  - Auto-detects port by known VID/PID (CP2102, CH340, FT232, etc.)
+  - Sends commands in format "S<steering>,T<throttle>\n"
+  - Hardware reset via DTR/RTS, simulation fallback if no port found
 
 
 7. DATA COLLECTION
@@ -173,7 +164,9 @@ autonomous_car_system/
   - TeleoperationCollector (data/teleoperation.py):
       * WASD keyboard control (pynput listener)
       * A/D = steering, W/S = throttle, Space = brake, R = toggle recording
-      * Saves synchronized frame.jpg + frame.json (steering, throttle, timestamp)
+      * Runs RoadSegNet in real-time to generate segmentation mask
+      * Saves (mask_XXXXXX.png, frame_XXXXXX.json) with steering + throttle
+      * Falls back to saving raw images if no RoadSegNet checkpoint provided
   - PrepareDataset (data/prepare_dataset.py):
       * Converts LabelMe JSON polygon annotations to PNG segmentation masks
       * Supports multiple label classes via labels.txt
@@ -185,14 +178,13 @@ autonomous_car_system/
 --------------------------------------------------------------------------------
   - device:            CUDA if available, else CPU
   - RoadSegNet:        3 classes, 128x128 input, 16 batch, 200 epochs, lr=5e-3
-  - DrivingNet:        66x200 input, 15 steering bins, 100 epochs, lr=1e-4
-  - Camera:            IMX219 @ 1640x1232 capture, 640x480 display, 30fps
-  - PWM:               50Hz, steering center=90, range=45, throttle 60-180
-  - Paths:             checkpoints/, data/collected_driving/
+  - MaskDrivingNet:    1-channel 128x128 input, 32 batch, 80 epochs, lr=1e-3
+  - Camera:            640x480, 60fps
+  - ESP32:             Serial UART @ 115200 baud
+  - Paths:             checkpoints/ (road_seg/, mask_driving/), data/collected_driving/
 
 
 9. DEPENDENCIES (requirements.txt)
 --------------------------------------------------------------------------------
   torch, torchvision, opencv-python, numpy, albumentations,
-  matplotlib, tqdm, pynput
-  (optional on Jetson: torch2trt, Jetson.GPIO, wiringpi)
+  matplotlib, tqdm, pynput, Flask, pyserial, torch2trt

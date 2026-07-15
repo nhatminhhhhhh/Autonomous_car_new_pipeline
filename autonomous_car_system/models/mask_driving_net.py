@@ -83,22 +83,6 @@ class MaskDrivingNet(nn.Module):
         x = self.fc(x)
         return x
 
-    @staticmethod
-    def preprocess_mask(mask: "np.ndarray", num_classes: int = 3) -> "torch.Tensor":
-        """
-        Chuyển mask numpy (H, W) class index → tensor normalized (1, H, W) float.
-
-        Args:
-            mask:        numpy array [H, W], dtype uint8, giá trị ∈ {0, 1, 2}
-            num_classes: số lớp (để normalize về [0, 1])
-        Returns:
-            tensor [1, H, W] float32 ∈ [0.0, 1.0]
-        """
-        import numpy as np
-        t = torch.from_numpy(mask.astype(np.float32)) / (num_classes - 1)
-        return t.unsqueeze(0)  # [1, H, W]
-
-
 if __name__ == '__main__':
     import torch
 
