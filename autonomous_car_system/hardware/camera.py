@@ -24,8 +24,8 @@ def detect_platform():
 
 def gstreamer_pipeline(
     sensor_id=0,
-    capture_width=1280,
-    capture_height=720,
+    capture_width=640,
+    capture_height=480,
     display_width=640,
     display_height=480,
     framerate=60,
@@ -51,17 +51,17 @@ def gstreamer_pipeline(
     )
 
 
-def open_camera(src=0, width=1280, height=720, fps=60):
+def open_camera(src=0, width=640, height=480, fps=60):
     plat = detect_platform()
 
     if plat == 'jetson':
         pipeline = gstreamer_pipeline(
             sensor_id=src,
-            capture_width=1280,
-            capture_height=720,
+            capture_width=width,
+            capture_height=height,
             display_width=width,
             display_height=height,
-            framerate=60,
+            framerate=fps,
             flip_method=2,
         )
         cap = cv2.VideoCapture(pipeline, cv2.CAP_GSTREAMER)
